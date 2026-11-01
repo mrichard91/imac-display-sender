@@ -23,6 +23,8 @@ final class StreamPipeline: @unchecked Sendable {
     private struct State {
         var encoder: Encoder?
         var active = false
+        /// Teardown has begun: capture errors from here on are expected.
+        var stopping = false
         var forceKeyframe = true
         /// A forced keyframe is in the encoder. Nothing else is submitted until
         /// it is out, so no delta frame can overtake it (§6.3, §6.4).
@@ -70,7 +72,10 @@ final class StreamPipeline: @unchecked Sendable {
     func startCapture(displayID: CGDirectDisplayID, size: PixelSize) async throws {
         let capture = Capture(
             onFrame: { [weak self] sample in self?.handle(sample) },
-            onStop: { [weak self] error in self?.onCaptureStopped?(error) })
+            onStop: { [weak self] error in
+                guard let self, !self.state.value.stopping else { return }
+                self.onCaptureStopped?(error)
+            })
         self.capture = capture
         try await capture.start(displayID: displayID, size: size)
     }
@@ -112,8 +117,15 @@ final class StreamPipeline: @unchecked Sendable {
         state.value.encoder?.setBitrate(kbps: kbps)
     }
 
+    /// Call before releasing the virtual display, so the capture error that
+    /// release causes is not reported as a failure.
+    func prepareToStop() {
+        state.withLock { $0.stopping = true }
+    }
+
     /// Tears everything down. Safe to call more than once.
     func stop() async {
+        prepareToStop()
         let encoder = state.withLock { state -> Encoder? in
             state.active = false
             state.latestImage = nil

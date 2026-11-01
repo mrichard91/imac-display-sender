@@ -68,7 +68,8 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Send
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         guard stream === self.stream else { return }
-        Log.error(.capture, "stream stopped: \(error.localizedDescription)")
+        // The owner decides whether this is a failure (it is not during teardown).
+        Log.debug(.capture, "stream stopped: \(error.localizedDescription)")
         onStop(error)
     }
 

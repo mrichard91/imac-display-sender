@@ -330,6 +330,7 @@ final class SenderSession: ObservableObject {
     /// Releases the display first (windows come back within 2 s, §7.2), then
     /// stops capture and the encoder in the background.
     private func tearDown() {
+        pipeline?.prepareToStop()
         display?.release()
         display = nil
         if let pipeline {
