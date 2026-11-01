@@ -1,0 +1,147 @@
+# iMac Display Sender
+
+A macOS menu bar app that turns a remote screen into an extra display for your
+Mac. It creates a virtual display matching the receiver's panel, captures it
+with ScreenCaptureKit, encodes HEVC with the hardware encoder and streams it
+over TCP to `imac-display-receiver` (an iMac
+running Ubuntu, or any Linux box running the receiver).
+
+Install it on as many Macs as you like; each one connects to one receiver at a
+time by IP or hostname. Works over a Thunderbolt bridge, Ethernet or Wi-Fi.
+The wire format is specified in [`PROTOCOL.md`](PROTOCOL.md); the build plan is
+[`PLAN.md`](PLAN.md).
+
+Requirements: macOS 14 or later, Apple Silicon or Intel with a hardware HEVC
+encoder, Swift 5.10+ toolchain (Xcode or the Command Line Tools).
+
+## Install on a Mac
+
+```sh
+git clone <this repo> imac-display-sender && cd imac-display-sender
+scripts/make-app-bundle.sh          # release build → build/ImacDisplaySender.app
+cp -R build/ImacDisplaySender.app /Applications/
+open /Applications/ImacDisplaySender.app
+```
+
+`make-app-bundle.sh` ad-hoc signs the bundle. Set `BUNDLE_ID` to use your own
+identifier and `CODESIGN_IDENTITY` to sign with a real certificate.
+
+First run:
+
+1. A display icon appears in the menu bar (there is no Dock icon).
+2. **Connect…** → enter the receiver's address, e.g. `10.99.0.2`, port `7878`
+   (`host:port` and `[ipv6]:port` also work). Recent receivers are listed by
+   the name they report and can be reconnected with one click.
+3. macOS asks for **Screen Recording** permission the first time. Grant it in
+   System Settings → Privacy & Security → Screen & System Audio Recording,
+   then quit and reopen the app. On macOS 15+ it may also ask for **Local
+   Network** access; allow it.
+4. The new display appears in System Settings → Displays; arrange it like any
+   monitor. The default mode is HiDPI at the panel's native resolution.
+
+**Disconnect** sends GOODBYE, removes the virtual display (windows return to
+your other screens within ~2 s) and does not reconnect. If the link drops
+instead, the app removes the display and reconnects with 1, 2, 4 … 10 s
+backoff while *Reconnect automatically* is on.
+
+### Scripted installs
+
+Pass `--host` (and optionally `--port`) to connect at launch:
+
+```sh
+open /Applications/ImacDisplaySender.app --args --host 10.99.0.2 --port 7878
+```
+
+Enable **Launch at login** in the menu (uses `SMAppService`; only available when
+running from the `.app` bundle).
+
+## The menu
+
+- **Status**: Disconnected / Connecting (attempt n) / Testing link / Streaming
+  to "name" W×H @ Hz / Paused for speed test / Reconnecting in n s, plus the
+  last error.
+- **Link**: interface and type (Wi-Fi, Ethernet, Thunderbolt bridge for
+  `bridge*` interfaces) and RTT (minimum of the last 5 PINGs; includes the
+  receiver's queueing, so treat it as a health indicator).
+- **Bitrate**: effective bitrate actually written to the socket over the last
+  second, next to the encoder target, plus frames per second sent and frames
+  skipped because the link was backed up.
+- **Speed test**: last result in Mbit/s, over which interface, and when.
+- **Run Speed Test**: 1 s sender → receiver throughput test on the live
+  connection (enabled when the receiver advertises it). Streaming pauses for
+  the test; the picture stays on screen.
+- **Bitrate setting**: *Auto* runs a 0.5 s speed test at connect time and uses
+  60 % of the measured throughput, clamped to 10–200 Mbit/s and to the
+  receiver's hint; or a fixed 20 / 40 / 80 / 150 Mbit/s or custom value.
+  Changes apply live.
+
+Rough expectations from a speed test: Wi-Fi 100–800 Mbit/s, gigabit Ethernet
+~940, Thunderbolt bridge several Gbit/s. Pick a bitrate comfortably below it.
+
+## idp-probe
+
+A command-line check of a receiver and the link to it, using the same
+networking code as the app but no display, capture or private API. Useful on
+any Mac, over SSH, or to compare Wi-Fi against Ethernet against Thunderbolt.
+
+```sh
+build/idp-probe 10.99.0.2                       # HELLO, RTT, 1 s speed test
+build/idp-probe imac.local --port 7878 --speed-test-ms 3000 --pings 10
+build/idp-probe 10.99.0.2 --speed-test-ms 0     # skip the speed test
+```
+
+```
+link    10.99.0.2:7878 via bridge0 (Thunderbolt bridge), local 10.99.0.1:53012
+HELLO   "imac", protocol v1
+        panel 5120x2880 @ 60.000 Hz, 597x336 mm
+        display_id 0x8C1D..., codecs 0x1, caps 0x4 (speed-test)
+        max bitrate no preference
+RTT     0.31 ms (minimum of last 5 PINGs)
+speed   9412.0 Mbit/s (1176.5 MB in 1000.1 ms) over bridge0 (Thunderbolt bridge)
+```
+
+Exit status is 0 on success, 1 if the connection or speed test failed, 2 on
+bad arguments. `--verbose` prints protocol logs.
+
+## Development
+
+```sh
+swift build                 # debug
+swift build -c release
+swift test                  # protocol fixtures, meter math, framed reader, loopback receiver
+scripts/sync-protocol.sh ../imac-display-receiver   # after a protocol change upstream
+```
+
+Layout:
+
+| target | what |
+|---|---|
+| `IDPProtocol` | every PROTOCOL.md message, big-endian encode/decode; tests round-trip `protocol/fixtures/*.bin` byte for byte |
+| `IDPCore` | `Connection` (Network.framework TCP, framing, heartbeat/liveness, PING/RTT), `SpeedTest`, `BitrateMeter`, `LinkInfo`, Annex-B conversion and other pure logic; no UI, no private API |
+| `CGVirtualDisplayBridge` | the only use of private API (`CGVirtualDisplay*`), looked up at runtime so a missing class is an error, not a crash |
+| `ImacDisplaySender` | the menu bar app: session state machine, virtual display, capture, encoder, UI |
+| `idp-probe` | CLI link checker built on `IDPCore` |
+
+Logs go to stderr and the unified log (subsystem
+`io.github.mrichard91.imac-display-sender`) with a component prefix such as
+`[net]`, `[vt]`, `[display]`, `[speed]`. Set `IDP_LOG_LEVEL=debug` for more.
+To watch a running app: `log stream --predicate 'subsystem == "io.github.mrichard91.imac-display-sender"'`.
+
+Notes:
+
+- `PROTOCOL.md` and `protocol/fixtures/` are copies; the receiver repo is the
+  source of truth. Never edit them here, run `scripts/sync-protocol.sh`.
+- SwiftUI's `@State` is a compiler macro in recent SDKs and its plugin ships
+  only with Xcode, so view-local state lives in small `ObservableObject`s;
+  the app builds with the Command Line Tools alone.
+- With the Command Line Tools only, `swift test` occasionally fails to compile
+  a test target with "plugin for module 'TestingMacros' not found". It is a
+  toolchain race, not a code problem; rerun `swift test`.
+- `CGVirtualDisplay` is private API: the app is not App Store distributable
+  and may need updating after a macOS release. The app never changes the
+  virtual display's mode itself (that can make it un-removable until logout).
+
+## Security
+
+Protocol v1 has no authentication or encryption (PROTOCOL.md §10). Use it on a
+point-to-point cable or a trusted LAN.
