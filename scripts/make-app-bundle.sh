@@ -9,6 +9,9 @@
 #   VERSION             CFBundleShortVersionString (default 0.1.0)
 #   BUILD_NUMBER        CFBundleVersion (default 1)
 #   CODESIGN_IDENTITY   signing identity (default "-" = ad-hoc)
+#   SWIFT_BUILD_FLAGS   extra flags for every swift build call, e.g.
+#                       "--build-system native" where the default build
+#                       engine fails with "Could not initialize build system"
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,10 +23,14 @@ OUT="$ROOT/build"
 APP="$OUT/ImacDisplaySender.app"
 
 cd "$ROOT"
-echo "==> swift build -c release"
-swift build -c release --product ImacDisplaySender
-swift build -c release --product idp-probe
-BIN="$(swift build -c release --show-bin-path)"
+read -r -a BUILD_FLAGS <<< "${SWIFT_BUILD_FLAGS:-}"
+# The +-expansion keeps an empty array legal under `set -u` in bash 3.2.
+swift_build() { swift build -c release ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} "$@"; }
+
+echo "==> swift build -c release ${SWIFT_BUILD_FLAGS:-}"
+swift_build --product ImacDisplaySender
+swift_build --product idp-probe
+BIN="$(swift_build --show-bin-path)"
 
 echo "==> assembling $APP"
 rm -rf "$APP"

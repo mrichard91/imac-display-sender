@@ -26,6 +26,14 @@ open /Applications/ImacDisplaySender.app
 `make-app-bundle.sh` ad-hoc signs the bundle. Set `BUNDLE_ID` to use your own
 identifier and `CODESIGN_IDENTITY` to sign with a real certificate.
 
+If the build fails immediately with `Could not initialize build system ...
+Unknown error parsing property list`, that Mac's default SwiftPM build engine
+is tripping over its toolchain. Use the older engine:
+
+```sh
+SWIFT_BUILD_FLAGS="--build-system native" scripts/make-app-bundle.sh
+```
+
 First run:
 
 1. A display icon appears in the menu bar (there is no Dock icon).
