@@ -3,13 +3,30 @@
 A macOS menu bar app that turns a remote screen into an extra display for your
 Mac. It creates a virtual display matching the receiver's panel, captures it
 with ScreenCaptureKit, encodes HEVC with the hardware encoder and streams it
-over TCP to `imac-display-receiver` (an iMac
-running Ubuntu, or any Linux box running the receiver).
+over TCP to `imac-display-receiver` (an iMac running Ubuntu, or any Linux
+box running the receiver).
 
 Install it on as many Macs as you like; each one connects to one receiver at a
 time by IP or hostname. Works over a Thunderbolt bridge, Ethernet or Wi-Fi.
 The wire format is specified in [`PROTOCOL.md`](PROTOCOL.md); the build plan is
 [`PLAN.md`](PLAN.md).
+
+> [!WARNING]
+> **Protocol v1 has no authentication and no encryption.** Everything on the
+> virtual display is streamed in plaintext: anyone who can capture traffic on
+> the path can record your screen. The sender does not verify who it is talking
+> to; whatever host answers at the address you typed with a valid HELLO (a
+> wrong address, a DHCP lease handed to another machine, a spoofed DNS or mDNS
+> name) receives your screen, and *Reconnect automatically* keeps retrying that
+> address. The receiver name in the menu comes from that host and proves
+> nothing. Anyone who can reach the receiver's port can also display video on
+> it.
+>
+> Use a Thunderbolt or Ethernet cable or a trusted LAN, connect by IP address
+> rather than hostname, firewall the receiver, and keep sensitive windows off
+> the virtual display. Never use it across untrusted networks or the internet.
+> Details: [`PROTOCOL.md` §10](PROTOCOL.md#10-security) and
+> [`SECURITY.md`](SECURITY.md).
 
 Requirements: macOS 14 or later, Apple Silicon or Intel with a hardware HEVC
 encoder, Swift 5.10+ toolchain (Xcode or the Command Line Tools).
@@ -66,7 +83,7 @@ running from the `.app` bundle).
 ## The menu
 
 - **Status**: Disconnected / Connecting (attempt n) / Testing link / Streaming
-  to "name" W×H @ Hz / Paused for speed test / Reconnecting in n s, plus the
+  to "name" / Paused for speed test / Reconnecting in n s, plus the
   last error.
 - **Link**: interface and type (Wi-Fi, Ethernet, Thunderbolt bridge for
   `bridge*` interfaces) and RTT (minimum of the last 5 PINGs; includes the
@@ -137,8 +154,9 @@ To watch a running app: `log stream --predicate 'subsystem == "io.github.mrichar
 
 Notes:
 
-- `PROTOCOL.md` and `protocol/fixtures/` are copies; the receiver repo is the
-  source of truth. Never edit them here, run `scripts/sync-protocol.sh`.
+- `PROTOCOL.md`, `PLAN.md` and `protocol/fixtures/` are copies; the receiver
+  repo is the source of truth. Never edit them here, run
+  `scripts/sync-protocol.sh`.
 - SwiftUI's `@State` is a compiler macro in recent SDKs and its plugin ships
   only with Xcode, so view-local state lives in small `ObservableObject`s;
   the app builds with the Command Line Tools alone.
@@ -149,7 +167,28 @@ Notes:
   and may need updating after a macOS release. The app never changes the
   virtual display's mode itself (that can make it un-removable until logout).
 
+## Extending the protocol
+
+[`PROTOCOL.md`](PROTOCOL.md) is normative and written so that other senders
+and receivers can be built against it. Read
+[§3 Versioning](PROTOCOL.md#3-versioning) before changing anything: §3.1 says
+exactly what a v1 peer does with input it does not know and what can be added
+without a version bump (for example a new message type gated by a new HELLO
+`caps` bit), and §3.3 says how to propose an extension. No v1 message accepts
+trailing bytes, so appending a field to an existing message needs a bump.
+
+The receiver repository (`imac-display-receiver`) is the source of truth for
+`PROTOCOL.md`, `PLAN.md` and `protocol/fixtures/`. Propose protocol changes
+there first; then run `scripts/sync-protocol.sh <path-to-receiver-repo>` here
+and update `IDPProtocol` and `Tests/IDPProtocolTests/FixtureTests.swift` (its
+fixture list is explicit) so `swift test` round-trips every fixture again.
+
 ## Security
 
-Protocol v1 has no authentication or encryption (PROTOCOL.md §10). Use it on a
-point-to-point cable or a trusted LAN.
+See the warning at the top, [`SECURITY.md`](SECURITY.md) (including how to
+report a vulnerability privately) and
+[`PROTOCOL.md` §10](PROTOCOL.md#10-security).
+
+## License
+
+MIT; see [`LICENSE`](LICENSE).
