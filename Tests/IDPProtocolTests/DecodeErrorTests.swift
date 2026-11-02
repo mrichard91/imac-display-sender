@@ -33,6 +33,17 @@ struct DecodeErrorTests {
         #expect(throws: ProtocolError.self) { try Message.decode(bytes) }
     }
 
+    @Test func longStringIsCutAtACodePointBoundary() throws {
+        // 21 845 × "€" (3 bytes) = 65 535 bytes fits exactly; one more ASCII
+        // byte pushes the cut into the middle of the last "€".
+        var writer = ByteWriter()
+        writer.string("a" + String(repeating: "€", count: 21_845))
+        var reader = ByteReader(writer.data)
+        let decoded = try reader.string()
+        #expect(decoded == "a" + String(repeating: "€", count: 21_844))
+        #expect(writer.data.count == 2 + 1 + 21_844 * 3)
+    }
+
     @Test func rejectsStringPastPayload() {
         // GOODBYE claiming a 10-byte message but carrying 2.
         let bytes = Data([0x05, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 10, 0x68, 0x69])

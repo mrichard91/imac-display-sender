@@ -16,10 +16,17 @@ public struct ByteWriter {
     public mutating func zeros(_ count: Int) { data.append(contentsOf: repeatElement(0, count: count)) }
     public mutating func bytes(_ bytes: Data) { data.append(bytes) }
 
-    /// `u16 length` + UTF-8 bytes. Text longer than 65 535 bytes is truncated;
-    /// every string we send is a short name or log message.
+    /// `u16 length` + UTF-8 bytes. Text longer than 65 535 bytes is truncated
+    /// at a code point boundary (§2); every string we send is a short name or
+    /// log message.
     public mutating func string(_ value: String) {
-        let utf8 = Array(value.utf8.prefix(Int(UInt16.max)))
+        var utf8 = Array(value.utf8)
+        if utf8.count > Int(UInt16.max) {
+            var end = Int(UInt16.max)
+            // Back up over continuation bytes (10xxxxxx) so no scalar is split.
+            while end > 0 && utf8[end] & 0xC0 == 0x80 { end -= 1 }
+            utf8.removeSubrange(end...)
+        }
         u16(UInt16(utf8.count))
         data.append(contentsOf: utf8)
     }
