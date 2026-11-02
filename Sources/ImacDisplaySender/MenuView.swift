@@ -20,8 +20,15 @@ struct MenuView: View {
             if let report = session.lastSpeedTest {
                 SpeedTestLine(report: report)
             }
+            if let error = session.lastSpeedTestError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Divider()
+            ActionsSection(session: session, showingConnect: $panel.showingConnect)
             if panel.showingConnect {
                 ConnectView(
                     preferences: preferences,
@@ -30,8 +37,6 @@ struct MenuView: View {
                         session.connect(to: address)
                     },
                     onCancel: { panel.showingConnect = false })
-            } else {
-                ActionsSection(session: session, showingConnect: $panel.showingConnect)
             }
 
             Divider()
@@ -43,6 +48,9 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: 340)
+        // The panel keeps its view between openings: start each one without
+        // a half-filled form.
+        .onDisappear { panel.showingConnect = false }
     }
 }
 
@@ -66,6 +74,7 @@ private struct StatusSection: View {
             Label(session.statusText, systemImage: session.menuBarSymbol)
                 .font(.headline)
                 .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             if let error = session.lastError {
                 Text(error)
                     .font(.caption)
@@ -112,10 +121,18 @@ private struct SpeedTestLine: View {
 
     var body: some View {
         let link = report.link.map { " over \($0.summary)" } ?? ""
-        let when = report.date.formatted(.relative(presentation: .named))
-        Text(String(format: "Speed test: %.0f Mbit/s", report.mbps) + link + ", " + when)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        // Re-rendered on a clock: nothing else changes while the panel stays open.
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            Text(String(format: "Speed test: %.0f Mbit/s", report.mbps) + link + ", " + age(at: context.date))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// `.named` says "now" for the first minute, which reads oddly here.
+    private func age(at now: Date) -> String {
+        now.timeIntervalSince(report.date) < 60
+            ? "just now" : report.date.formatted(.relative(presentation: .named, unitsStyle: .wide))
     }
 }
 
@@ -126,6 +143,7 @@ private struct ActionsSection: View {
     var body: some View {
         HStack {
             Button("Connect…") { showingConnect = true }
+                .disabled(showingConnect)
             Button("Disconnect") { session.disconnect() }
                 .disabled(!session.isActive)
             Spacer()

@@ -36,6 +36,8 @@ final class SenderSession: ObservableObject {
     @Published private(set) var streamSize: PixelSize?
     @Published private(set) var lastSpeedTest: SpeedTestReport?
     @Published private(set) var speedTestRunning = false
+    /// Kept apart from `lastError`: a failed test does not stop the stream.
+    @Published private(set) var lastSpeedTestError: String?
     @Published private(set) var lastError: String?
 
     let preferences: Preferences
@@ -90,9 +92,8 @@ final class SenderSession: ObservableObject {
         case .startingStream: return "Starting stream to \(name)…"
         case .streaming:
             if speedTestRunning { return "Paused for speed test" }
-            guard let hello else { return "Streaming" }
-            return "Streaming to \(name) \(hello.panelWidthPx)×\(hello.panelHeightPx) @ "
-                + String(format: "%g Hz", hello.refreshHz)
+            // The mode is on the Stream row; the headline stays one line.
+            return hello == nil ? "Streaming" : "Streaming to \(name)"
         case .reconnecting(let seconds): return "Reconnecting to \(address) in \(seconds) s"
         }
     }
@@ -115,6 +116,7 @@ final class SenderSession: ObservableObject {
         backoff.reset()
         lastError = nil
         lastSpeedTest = nil
+        lastSpeedTestError = nil
         open()
     }
 
@@ -195,6 +197,8 @@ final class SenderSession: ObservableObject {
         self.hello = hello
         backoff.reset()
         attempt = 0
+        // The receiver answered: whatever made earlier attempts fail is over.
+        lastError = nil
         if let target { preferences.remember(target, name: hello.name) }
 
         if preferences.bitrateMode == .auto, hello.caps.contains(.speedTest) {
@@ -378,11 +382,12 @@ final class SenderSession: ObservableObject {
         switch result {
         case .success(let report):
             lastSpeedTest = report
+            lastSpeedTestError = nil
             measuredKbps = report.kbps
             applyBitrate(mode: preferences.bitrateMode)
         case .failure(let error):
             Log.warn(.speed, "speed test failed: \(error)")
-            lastError = "Speed test failed: \(error)"
+            lastSpeedTestError = "Speed test failed: \(error)"
         }
     }
 
