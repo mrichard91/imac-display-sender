@@ -6,6 +6,11 @@ with ScreenCaptureKit, encodes HEVC with the hardware encoder and streams it
 over TCP to `imac-display-receiver` (an iMac running Ubuntu, or any Linux
 box running the receiver).
 
+<p align="center">
+  <img src="docs/menu.png" width="389" alt="The menu bar panel while streaming to a receiver named imac-ubuntu over Wi-Fi: link, stream size, bitrate, frames, last speed test, Connect, Disconnect and Run Speed Test buttons, bitrate and login settings">
+</p>
+<p align="center"><sub>Streaming 3840×2160 over Wi-Fi. Frames are only sent when the screen changes, so an idle desktop shows close to 0 Mbit/s.</sub></p>
+
 Install it on as many Macs as you like; each one connects to one receiver at a
 time by IP or hostname. Works over a Thunderbolt bridge, Ethernet or Wi-Fi.
 The wire format is specified in [`PROTOCOL.md`](PROTOCOL.md); the build plan is
