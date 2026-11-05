@@ -3,22 +3,9 @@ import IDPCore
 import IDPProtocol
 import ServiceManagement
 
-/// A receiver the user connected to successfully, with the name from its HELLO.
-struct RecentReceiver: Codable, Hashable, Identifiable {
-    var host: String
-    var port: UInt16
-    var name: String
-    var lastConnected: Date
-
-    var id: String { address.description }
-    var address: ReceiverAddress { ReceiverAddress(host: host, port: port) }
-}
-
 /// User settings in UserDefaults.
 @MainActor
 final class Preferences: ObservableObject {
-    static let maxRecentReceivers = 10
-
     private enum Key {
         static let recentReceivers = "recentReceivers"
         static let bitrateMbps = "bitrateMbps"  // 0 = auto
@@ -28,8 +15,9 @@ final class Preferences: ObservableObject {
 
     private let defaults: UserDefaults
 
-    @Published private(set) var recentReceivers: [RecentReceiver] {
-        didSet { save(recentReceivers, forKey: Key.recentReceivers) }
+    /// Stored under the old "recent receivers" key, as a plain array.
+    @Published private(set) var receivers: ReceiverList {
+        didSet { save(receivers.all, forKey: Key.recentReceivers) }
     }
 
     @Published var bitrateMode: BitrateMode {
@@ -53,7 +41,7 @@ final class Preferences: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        recentReceivers = Self.load([RecentReceiver].self, from: defaults, forKey: Key.recentReceivers) ?? []
+        receivers = ReceiverList(Self.load([SavedReceiver].self, from: defaults, forKey: Key.recentReceivers) ?? [])
         let mbps = defaults.integer(forKey: Key.bitrateMbps)
         bitrateMode = mbps > 0 ? .fixed(mbps: mbps) : .auto
         let custom = defaults.integer(forKey: Key.customBitrateMbps)
@@ -61,17 +49,19 @@ final class Preferences: ObservableObject {
         autoReconnect = defaults.object(forKey: Key.autoReconnect) as? Bool ?? true
     }
 
-    var lastReceiver: RecentReceiver? { recentReceivers.first }
+    var lastReceiver: SavedReceiver? { receivers.last }
 
-    /// Moves (or adds) the receiver to the top of the recent list.
-    func remember(_ address: ReceiverAddress, name: String) {
-        var list = recentReceivers.filter { $0.address != address }
-        list.insert(RecentReceiver(host: address.host, port: address.port, name: name, lastConnected: Date()), at: 0)
-        recentReceivers = Array(list.prefix(Self.maxRecentReceivers))
+    /// After a successful HELLO; `label` names the receiver (nil keeps its name).
+    func remember(_ address: ReceiverAddress, name: String, label: String?) {
+        receivers.remember(address, name: name, label: label)
     }
 
-    func forget(_ receiver: RecentReceiver) {
-        recentReceivers.removeAll { $0.id == receiver.id }
+    func rename(_ id: SavedReceiver.ID, to label: String?) {
+        receivers.rename(id, to: label)
+    }
+
+    func forget(_ receiver: SavedReceiver) {
+        receivers.forget(receiver.id)
     }
 
     private func save<T: Encodable>(_ value: T, forKey key: String) {

@@ -50,6 +50,8 @@ final class SenderSession: ObservableObject {
     private var backoff = ReconnectBackoff()
     private var reconnectTask: Task<Void, Never>?
     private var statsTimer: Timer?
+    /// Name typed in the connect form, saved with the receiver once it answers.
+    private var pendingLabel: String?
     /// From a speed test on the current connection; drives Auto bitrate.
     private var measuredKbps: UInt64?
     private var subscriptions = Set<AnyCancellable>()
@@ -74,6 +76,16 @@ final class SenderSession: ObservableObject {
     }
 
     var isActive: Bool { phase != .idle }
+
+    /// Connected or connecting to `address`, not waiting out a reconnect
+    /// backoff. `target` outlives a final failure, so it alone is not enough.
+    func isLive(to address: ReceiverAddress) -> Bool {
+        guard target == address else { return false }
+        switch phase {
+        case .idle, .reconnecting: return false
+        default: return true
+        }
+    }
 
     var canRunSpeedTest: Bool {
         guard let hello, hello.caps.contains(.speedTest), !speedTestRunning else { return false }
@@ -108,10 +120,13 @@ final class SenderSession: ObservableObject {
 
     // MARK: User actions
 
-    func connect(to address: ReceiverAddress) {
+    /// `label` names the receiver in the saved list once it answers; nil keeps
+    /// any name it already has.
+    func connect(to address: ReceiverAddress, label: String? = nil) {
         Log.info(.session, "user connect to \(address)")
         if connection != nil || reconnectTask != nil { disconnect() }
         target = address
+        pendingLabel = label
         attempt = 0
         backoff.reset()
         lastError = nil
@@ -130,6 +145,7 @@ final class SenderSession: ObservableObject {
         }
         tearDown()
         target = nil
+        pendingLabel = nil
         phase = .idle
         lastError = nil
     }
@@ -199,7 +215,10 @@ final class SenderSession: ObservableObject {
         attempt = 0
         // The receiver answered: whatever made earlier attempts fail is over.
         lastError = nil
-        if let target { preferences.remember(target, name: hello.name) }
+        if let target {
+            preferences.remember(target, name: hello.name, label: pendingLabel)
+            pendingLabel = nil
+        }
 
         if preferences.bitrateMode == .auto, hello.caps.contains(.speedTest) {
             phase = .testingLink

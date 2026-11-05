@@ -28,13 +28,18 @@ struct MenuView: View {
             }
 
             Divider()
-            ActionsSection(session: session, showingConnect: $panel.showingConnect)
+            ActionsSection(session: session, preferences: preferences, showingConnect: $panel.showingConnect)
             if panel.showingConnect {
                 ConnectView(
                     preferences: preferences,
-                    onConnect: { address in
+                    onConnect: { address, label in
                         panel.showingConnect = false
-                        session.connect(to: address)
+                        // Naming the receiver already on screen should not drop the stream.
+                        if session.isLive(to: address), preferences.receivers.all.contains(where: { $0.address == address }) {
+                            if let label { preferences.rename(address.description, to: label) }
+                        } else {
+                            session.connect(to: address, label: label)
+                        }
                     },
                     onCancel: { panel.showingConnect = false })
             }
@@ -47,7 +52,7 @@ struct MenuView: View {
                 .keyboardShortcut("q")
         }
         .padding(14)
-        .frame(width: 340)
+        .frame(width: 360)
         // The panel keeps its view between openings: start each one without
         // a half-filled form.
         .onDisappear { panel.showingConnect = false }
@@ -138,11 +143,12 @@ private struct SpeedTestLine: View {
 
 private struct ActionsSection: View {
     @ObservedObject var session: SenderSession
+    @ObservedObject var preferences: Preferences
     @Binding var showingConnect: Bool
 
     var body: some View {
         HStack {
-            Button("Connect…") { showingConnect = true }
+            ConnectMenu(session: session, preferences: preferences, showingConnect: $showingConnect)
                 .disabled(showingConnect)
             Button("Disconnect") { session.disconnect() }
                 .disabled(!session.isActive)
@@ -150,6 +156,45 @@ private struct ActionsSection: View {
             Button(session.speedTestRunning ? "Testing…" : "Run Speed Test") { session.runSpeedTest() }
                 .disabled(!session.canRunSpeedTest)
                 .help("Measures sender → receiver throughput for 1 s")
+        }
+    }
+}
+
+/// "Connect…" until something has connected; then a menu of the saved and
+/// recent receivers, with the live one ticked. Choosing a receiver that is
+/// not live (including one waiting to reconnect) connects to it now.
+private struct ConnectMenu: View {
+    @ObservedObject var session: SenderSession
+    @ObservedObject var preferences: Preferences
+    @Binding var showingConnect: Bool
+
+    var body: some View {
+        let receivers = preferences.receivers
+        if receivers.all.isEmpty {
+            Button("Connect…") { showingConnect = true }
+        } else {
+            Menu("Connect") {
+                if !receivers.named.isEmpty {
+                    Section("Saved") { ForEach(receivers.named, content: item) }
+                }
+                if !receivers.recent.isEmpty {
+                    Section("Recent") { ForEach(receivers.recent, content: item) }
+                }
+                Divider()
+                Button("Other Receiver…") { showingConnect = true }
+            }
+            .fixedSize()
+        }
+    }
+
+    private func item(_ receiver: SavedReceiver) -> some View {
+        Toggle(isOn: Binding(
+            get: { session.isLive(to: receiver.address) },
+            set: { _ in
+                if !session.isLive(to: receiver.address) { session.connect(to: receiver.address) }
+            })
+        ) {
+            Text("\(receiver.title)  —  \(receiver.detail)")
         }
     }
 }

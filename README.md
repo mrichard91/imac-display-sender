@@ -7,7 +7,7 @@ over TCP to `imac-display-receiver` (an iMac running Ubuntu, or any Linux
 box running the receiver).
 
 <p align="center">
-  <img src="docs/menu.png" width="389" alt="The menu bar panel while streaming to a receiver named imac-ubuntu over Wi-Fi: link, stream size, bitrate, frames, last speed test, Connect, Disconnect and Run Speed Test buttons, bitrate and login settings">
+  <img src="docs/menu.png" width="389" alt="The menu bar panel while streaming to a receiver named imac-ubuntu over Wi-Fi: link, stream size, bitrate, frames, last speed test, Connect, Disconnect and Run Speed Test buttons, bitrate and login settings. Taken before Connect became a menu of saved receivers">
 </p>
 <p align="center"><sub>Streaming 3840×2160 over Wi-Fi. Frames are only sent when the screen changes, so an idle desktop shows close to 0 Mbit/s.</sub></p>
 
@@ -60,8 +60,9 @@ First run:
 
 1. A display icon appears in the menu bar (there is no Dock icon).
 2. **Connect…** → enter the receiver's address, e.g. `10.99.0.2`, port `7878`
-   (`host:port` and `[ipv6]:port` also work). Recent receivers are listed by
-   the name they report and can be reconnected with one click.
+   (`host:port` and `[ipv6]:port` also work), and optionally a name such as
+   *Thunderbolt*. Once a receiver answers, the button becomes a **Connect**
+   menu listing it (see [Saved receivers](#saved-receivers)).
 3. macOS asks for **Screen Recording** permission the first time. Grant it in
    System Settings → Privacy & Security → Screen & System Audio Recording,
    then quit and reopen the app. On macOS 15+ it may also ask for **Local
@@ -94,9 +95,16 @@ running from the `.app` bundle).
   `bridge*` interfaces) and RTT (minimum of the last 5 PINGs; includes the
   receiver's queueing, so treat it as a health indicator).
 - **Bitrate**: effective bitrate actually written to the socket over the last
-  second, next to the encoder target, plus frames per second sent and frames
-  skipped because the link was backed up.
+  second, next to the encoder target.
+- **Frames**: frames per second sent, and the number of captures skipped
+  before encoding since this connection started. A capture is skipped while
+  more than two frames are waiting in the encoder or the socket (the link, or
+  a receiver that cannot decode fast enough, is behind), during a menu speed
+  test, and while a requested keyframe is being encoded. Compare it over time
+  rather than as a total.
 - **Speed test**: last result in Mbit/s, over which interface, and when.
+- **Connect**: a menu of saved and recent receivers, with the current one
+  ticked, plus **Other Receiver…** for a new address (see below).
 - **Run Speed Test**: 1 s sender → receiver throughput test on the live
   connection (enabled when the receiver advertises it). Streaming pauses for
   the test; the picture stays on screen.
@@ -104,6 +112,29 @@ running from the `.app` bundle).
   60 % of the measured throughput, clamped to 10–200 Mbit/s and to the
   receiver's hint; or a fixed 20 / 40 / 80 / 150 Mbit/s or custom value.
   Changes apply live.
+
+### Saved receivers
+
+Every receiver that answers with a HELLO is remembered by address. Give one a
+name to keep it under **Saved** in the **Connect** menu:
+
+- for a new address, type the name in the connect form's *Name* field; it is
+  saved once the receiver answers;
+- for one already listed, open **Other Receiver…** and click the pencil next
+  to it. Return saves, Escape cancels, and an empty name moves it back to
+  **Recent**. Typing a name for the receiver you are streaming to names it
+  without reconnecting.
+
+A name belongs to the exact address you typed, so one iMac reachable over
+Thunderbolt and over Wi-Fi can be saved twice, e.g. *Thunderbolt*
+(`10.99.0.2`) and *Wi-Fi* (`192.168.8.21`); `imac.local` and `IMAC.local`
+count as different entries.
+
+Saved receivers are listed by name and kept until you forget them (the ×).
+Unnamed ones appear under **Recent**, newest first, and only the last 10 are
+kept. The name the receiver reports (its hostname by default) is shown next to
+the address. It comes from the receiver and proves nothing about who is
+answering; see [Security](#security).
 
 Rough expectations from a speed test: Wi-Fi 100–800 Mbit/s, gigabit Ethernet
 ~940, Thunderbolt bridge several Gbit/s. Pick a bitrate comfortably below it.
