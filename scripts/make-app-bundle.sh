@@ -9,9 +9,8 @@
 #   VERSION             CFBundleShortVersionString (default 0.1.0)
 #   BUILD_NUMBER        CFBundleVersion (default 1)
 #   CODESIGN_IDENTITY   signing identity (default "-" = ad-hoc)
-#   SWIFT_BUILD_FLAGS   extra flags for every swift build call, e.g.
-#                       "--build-system native" where the default build
-#                       engine fails with "Could not initialize build system"
+#   SWIFT_BUILD_FLAGS   extra flags for every swift build call. An explicit
+#                       --build-system disables automatic engine fallback.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,7 +27,33 @@ read -r -a BUILD_FLAGS <<< "${SWIFT_BUILD_FLAGS:-}"
 swift_build() { swift build -c release ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} "$@"; }
 
 echo "==> swift build -c release ${SWIFT_BUILD_FLAGS:-}"
-swift_build --product ImacDisplaySender
+# Recent SwiftPM versions can fail to initialize the default engine with the
+# Command Line Tools alone. Retry this specific failure, preserving other flags
+# and using the same engine for both products and --show-bin-path.
+BUILD_SYSTEM_EXPLICIT=false
+for flag in ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"}; do
+    case "$flag" in
+        --build-system|--build-system=*) BUILD_SYSTEM_EXPLICIT=true ;;
+    esac
+done
+BUILD_LOG="$(mktemp -t imac-display-build)"
+trap 'rm -f "$BUILD_LOG"' EXIT
+if swift_build --product ImacDisplaySender 2>&1 | tee "$BUILD_LOG"; then
+    :
+else
+    BUILD_STATUS=$?
+    if [ "$BUILD_SYSTEM_EXPLICIT" = false ] &&
+        grep -q 'Could not initialize build system' "$BUILD_LOG" &&
+        grep -q 'Unknown error parsing property list' "$BUILD_LOG"; then
+        echo "==> default build engine failed to initialize; retrying with --build-system native"
+        BUILD_FLAGS+=(--build-system native)
+        swift_build --product ImacDisplaySender
+    else
+        exit "$BUILD_STATUS"
+    fi
+fi
+rm -f "$BUILD_LOG"
+trap - EXIT
 swift_build --product idp-probe
 BIN="$(swift_build --show-bin-path)"
 
